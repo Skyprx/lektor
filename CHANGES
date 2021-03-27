@@ -3,11 +3,24 @@ Changelog
 
 These are all the changes in Lektor since the first public release.
 
+UNRELEASED - in development
+
+- Fix the checkboxes widget in the admin UI.
+- Fix queries with offset but without a limit.
+- Fix the toggling of flow widgets in the admin UI to not mark the content as changed.
+- Fix the handling of the URLs when opening the admin UI from the pencil button.
+- Allow rsync deployment to a local path.
+- Relax the checking of URL fields and allow FTP and mailto URLs.
+- Correctly track the page URL on the admin preview page.
+- Rename a CSS class in the admin UI so that it is not blocked by the EasyList FR adblock list.
+
 3.2.0
 -----
 
-Release date TBD
+Release date 20th of August, 2020
 
+- Fix off-by-one error in pagintaion's iter_pages in the interpretation of the right_current argument, and adding an appropriate trailing `None` for some uses.
+- Add support for setting an output_path in the project file.
 - Replaced the slugify backend to handle unicode more effectively. This may break some slugs built from unicode.
 - Several modernization and performance improvements to the admin UI
 - Improved speed of source info updates.

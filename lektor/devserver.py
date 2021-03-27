@@ -1,20 +1,23 @@
 import os
+import threading
 import time
 import traceback
-import threading
 
-from werkzeug.serving import run_simple, WSGIRequestHandler
+from werkzeug.serving import run_simple
+from werkzeug.serving import WSGIRequestHandler
 
-from lektor.db import Database
-from lektor.builder import Builder, process_extra_flags
-from lektor.watcher import Watcher
-from lektor.reporter import CliReporter
 from lektor.admin import WebAdmin
+from lektor.builder import Builder
+from lektor.db import Database
+from lektor.reporter import CliReporter
 from lektor.utils import portable_popen
+from lektor.utils import process_extra_flags
+from lektor.watcher import Watcher
 
 
-_os_alt_seps = list(sep for sep in [os.path.sep, os.path.altsep]
-                    if sep not in (None, '/'))
+_os_alt_seps = list(
+    sep for sep in [os.path.sep, os.path.altsep] if sep not in (None, "/")
+)
 
 
 class SilentWSGIRequestHandler(WSGIRequestHandler):
@@ -23,14 +26,9 @@ class SilentWSGIRequestHandler(WSGIRequestHandler):
 
 
 class BackgroundBuilder(threading.Thread):
-
-    def __init__(self, env, output_path, prune=True, verbosity=0,
-                 extra_flags=None):
+    def __init__(self, env, output_path, prune=True, verbosity=0, extra_flags=None):
         threading.Thread.__init__(self)
-        watcher = Watcher(env, output_path)
-        watcher.observer.start()
         self.env = env
-        self.watcher = watcher
         self.output_path = output_path
         self.prune = prune
         self.verbosity = verbosity
@@ -40,8 +38,9 @@ class BackgroundBuilder(threading.Thread):
     def build(self, update_source_info_first=False):
         try:
             db = Database(self.env)
-            builder = Builder(db.new_pad(), self.output_path,
-                              extra_flags=self.extra_flags)
+            builder = Builder(
+                db.new_pad(), self.output_path, extra_flags=self.extra_flags
+            )
             if update_source_info_first:
                 builder.update_all_source_infos()
             builder.build_all()
@@ -55,12 +54,13 @@ class BackgroundBuilder(threading.Thread):
     def run(self):
         with CliReporter(self.env, verbosity=self.verbosity):
             self.build(update_source_info_first=True)
-            for ts, _, _ in self.watcher:
-                if self.last_build is None or ts > self.last_build:
-                    self.build()
+            with Watcher(self.env, self.output_path) as watcher:
+                for ts, _, _ in watcher:
+                    if self.last_build is None or ts > self.last_build:
+                        self.build()
 
 
-class DevTools(object):
+class DevTools:
     """This provides extra helpers for launching tools such as webpack."""
 
     def __init__(self, env):
@@ -70,13 +70,17 @@ class DevTools(object):
     def start(self):
         if self.watcher is not None:
             return
-        from lektor import admin
-        admin = os.path.dirname(admin.__file__)
-        portable_popen(['npm', 'install', '.'], cwd=admin).wait()
 
-        self.watcher = portable_popen([os.path.join(
-            admin, 'node_modules/.bin/webpack'), '--watch'],
-            cwd=os.path.join(admin, 'static'))
+        # pylint: disable=import-outside-toplevel
+        from lektor import admin
+
+        admin = os.path.dirname(admin.__file__)
+        portable_popen(["npm", "install", "."], cwd=admin).wait()
+
+        self.watcher = portable_popen(
+            [os.path.join(admin, "node_modules/.bin/webpack"), "--watch"],
+            cwd=os.path.join(admin, "static"),
+        )
 
     def stop(self):
         if self.watcher is None:
@@ -87,36 +91,58 @@ class DevTools(object):
 
 
 def browse_to_address(addr):
+    # pylint: disable=import-outside-toplevel
     import webbrowser
+
     def browse():
         time.sleep(1)
-        webbrowser.open('http://%s:%s' % addr)
+        webbrowser.open("http://%s:%s" % addr)
+
     t = threading.Thread(target=browse)
     t.setDaemon(True)
     t.start()
 
 
-def run_server(bindaddr, env, output_path, prune=True, verbosity=0,
-               lektor_dev=False, ui_lang='en', browse=False, extra_flags=None):
+def run_server(
+    bindaddr,
+    env,
+    output_path,
+    prune=True,
+    verbosity=0,
+    lektor_dev=False,
+    ui_lang="en",
+    browse=False,
+    extra_flags=None,
+):
     """This runs a server but also spawns a background process.  It's
     not safe to call this more than once per python process!
     """
-    wz_as_main = os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
+    wz_as_main = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
     in_main_process = not lektor_dev or wz_as_main
     extra_flags = process_extra_flags(extra_flags)
 
     if in_main_process:
-        background_builder = BackgroundBuilder(env, output_path=output_path,
-                                               prune=prune, verbosity=verbosity,
-                                               extra_flags=extra_flags)
+        background_builder = BackgroundBuilder(
+            env,
+            output_path=output_path,
+            prune=prune,
+            verbosity=verbosity,
+            extra_flags=extra_flags,
+        )
         background_builder.setDaemon(True)
         background_builder.start()
-        env.plugin_controller.emit('server-spawn', bindaddr=bindaddr,
-                                   extra_flags=extra_flags)
+        env.plugin_controller.emit(
+            "server-spawn", bindaddr=bindaddr, extra_flags=extra_flags
+        )
 
-    app = WebAdmin(env, output_path=output_path, verbosity=verbosity,
-                   debug=lektor_dev, ui_lang=ui_lang,
-                   extra_flags=extra_flags)
+    app = WebAdmin(
+        env,
+        output_path=output_path,
+        verbosity=verbosity,
+        debug=lektor_dev,
+        ui_lang=ui_lang,
+        extra_flags=extra_flags,
+    )
 
     dt = None
     if lektor_dev and not wz_as_main:
@@ -127,13 +153,19 @@ def run_server(bindaddr, env, output_path, prune=True, verbosity=0,
         browse_to_address(bindaddr)
 
     try:
-        return run_simple(bindaddr[0], bindaddr[1], app,
-                          use_debugger=True, threaded=True,
-                          use_reloader=lektor_dev,
-                          request_handler=not lektor_dev
-                          and SilentWSGIRequestHandler or WSGIRequestHandler)
+        return run_simple(
+            bindaddr[0],
+            bindaddr[1],
+            app,
+            use_debugger=True,
+            threaded=True,
+            use_reloader=lektor_dev,
+            request_handler=not lektor_dev
+            and SilentWSGIRequestHandler
+            or WSGIRequestHandler,
+        )
     finally:
         if dt is not None:
             dt.stop()
         if in_main_process:
-            env.plugin_controller.emit('server-stop')
+            env.plugin_controller.emit("server-stop")

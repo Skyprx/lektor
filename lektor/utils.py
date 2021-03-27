@@ -12,53 +12,44 @@ import tempfile
 import traceback
 import unicodedata
 import uuid
-from datetime import datetime
 from contextlib import contextmanager
+from datetime import datetime
+from functools import lru_cache
+from pathlib import PurePosixPath
+from queue import Queue
 from threading import Thread
-try:
-    from functools import lru_cache
-except ImportError:
-    from functools32 import lru_cache
-try:
-    from pathlib import PurePosixPath
-except ImportError:
-    from pathlib2 import PurePosixPath
 
 import click
 from jinja2 import is_undefined
 from markupsafe import Markup
-from slugify import slugify
+from slugify import slugify as _slugify
 from werkzeug import urls
 from werkzeug.http import http_date
 from werkzeug.posixemulation import rename
 from werkzeug.urls import url_parse
 
-from lektor._compat import (queue, integer_types, iteritems, reraise,
-                            string_types, text_type, range_type)
-from lektor.uilink import BUNDLE_BIN_PATH, EXTRA_PATHS
 
+is_windows = os.name == "nt"
 
-is_windows = (os.name == 'nt')
+_slash_escape = "\\/" not in json.dumps("/")
 
-_slash_escape = '\\/' not in json.dumps('/')
-
-_slashes_re = re.compile(r'(/\.{1,2}(/|$))|/')
-_last_num_re = re.compile(r'^(.*)(\d+)(.*?)$')
+_slashes_re = re.compile(r"(/\.{1,2}(/|$))|/")
+_last_num_re = re.compile(r"^(.*)(\d+)(.*?)$")
 _list_marker = object()
 _value_marker = object()
 
 # Figure out our fs encoding, if it's ascii we upgrade to utf-8
 fs_enc = sys.getfilesystemencoding()
 try:
-    if codecs.lookup(fs_enc).name == 'ascii':
-        fs_enc = 'utf-8'
+    if codecs.lookup(fs_enc).name == "ascii":
+        fs_enc = "utf-8"
 except LookupError:
     pass
 
 
 def split_virtual_path(path):
-    if '@' in path:
-        return path.split('@', 1)
+    if "@" in path:
+        return path.split("@", 1)
     return path, None
 
 
@@ -74,28 +65,28 @@ def join_path(a, b):
     # where the parent is the actual parent of the page.  This however
     # is explicitly not done if the path we join with refers to the
     # current path (empty string or dot).
-    if b_p not in ('', '.') and a_v and a_v.isdigit():
+    if b_p not in ("", ".") and a_v and a_v.isdigit():
         a_v = None
 
     # New path has a virtual path, add that to it.
     if b_v:
-        rv = _norm_join(a_p, b_p) + '@' + b_v
+        rv = _norm_join(a_p, b_p) + "@" + b_v
     elif a_v:
-        rv = a_p + '@' + _norm_join(a_v, b_p)
+        rv = a_p + "@" + _norm_join(a_v, b_p)
     else:
         rv = _norm_join(a_p, b_p)
-    if rv[-2:] == '@.':
+    if rv[-2:] == "@.":
         rv = rv[:-2]
     return rv
 
 
 def cleanup_path(path):
-    return '/' + _slashes_re.sub('/', path).strip('/')
+    return "/" + _slashes_re.sub("/", path).strip("/")
 
 
 def parse_path(path):
-    x = cleanup_path(path).strip('/').split('/')
-    if x == ['']:
+    x = cleanup_path(path).strip("/").split("/")
+    if x == [""]:
         return []
     return x
 
@@ -105,22 +96,22 @@ def is_path_child_of(a, b, strict=True):
     b_p, b_v = split_virtual_path(b)
     a_p = parse_path(a_p)
     b_p = parse_path(b_p)
-    a_v = parse_path(a_v or '')
-    b_v = parse_path(b_v or '')
+    a_v = parse_path(a_v or "")
+    b_v = parse_path(b_v or "")
 
     if not strict and a_p == b_p and a_v == b_v:
         return True
     if not a_v and b_v:
         return False
-    if a_p == b_p and a_v[:len(b_v)] == b_v and len(a_v) > len(b_v):
+    if a_p == b_p and a_v[: len(b_v)] == b_v and len(a_v) > len(b_v):
         return True
-    return a_p[:len(b_p)] == b_p and len(a_p) > len(b_p)
+    return a_p[: len(b_p)] == b_p and len(a_p) > len(b_p)
 
 
 def untrusted_to_os_path(path):
-    path = path.strip('/').replace('/', os.path.sep)
-    if not isinstance(path, text_type):
-        path = path.decode(fs_enc, 'replace')
+    path = path.strip("/").replace("/", os.path.sep)
+    if not isinstance(path, str):
+        path = path.decode(fs_enc, "replace")
     return path
 
 
@@ -133,39 +124,42 @@ def magic_split_ext(filename, ext_check=True):
     (which is the default) then it verifies the extension is at least
     reasonable.
     """
+
     def bad_ext(ext):
         if not ext_check:
             return False
-        if not ext or ext.split() != [ext] or ext.strip():
+        if not ext or ext.split() != [ext] or ext.strip() != ext:
             return True
         return False
 
-    parts = filename.rsplit('.', 2)
+    parts = filename.rsplit(".", 2)
+    if len(parts) == 1:
+        return parts[0], ""
     if len(parts) == 2 and not parts[0]:
-        return parts[0], ''
+        return "." + parts[1], ""
     if len(parts) == 3 and len(parts[1]) < 5:
-        ext = '.'.join(parts[1:])
+        ext = ".".join(parts[1:])
         if not bad_ext(ext):
             return parts[0], ext
     ext = parts[-1]
     if bad_ext(ext):
-        return filename, ''
-    basename = '.'.join(parts[:-1])
+        return filename, ""
+    basename = ".".join(parts[:-1])
     return basename, ext
 
 
 def iter_dotted_path_prefixes(dotted_path):
-    pieces = dotted_path.split('.')
+    pieces = dotted_path.split(".")
     if len(pieces) == 1:
         yield dotted_path, None
     else:
-        for x in range_type(1, len(pieces)):
-            yield '.'.join(pieces[:x]), '.'.join(pieces[x:])
+        for x in range(1, len(pieces)):
+            yield ".".join(pieces[:x]), ".".join(pieces[x:])
 
 
 def resolve_dotted_value(obj, dotted_path):
     node = obj
-    for key in dotted_path.split('.'):
+    for key in dotted_path.split("."):
         if isinstance(node, dict):
             new_node = node.get(key)
             if new_node is None and key.isdigit():
@@ -185,7 +179,7 @@ def resolve_dotted_value(obj, dotted_path):
 
 def decode_flat_data(itemiter, dict_cls=dict):
     def _split_key(name):
-        result = name.split('.')
+        result = name.split(".")
         for idx, part in enumerate(result):
             if part.isdigit():
                 result[idx] = int(part)
@@ -202,17 +196,16 @@ def decode_flat_data(itemiter, dict_cls=dict):
             values = container.pop(_value_marker)
             if container.pop(_list_marker, False):
                 force_list = True
-                values.extend(_convert(x[1]) for x in
-                              sorted(container.items()))
+                values.extend(_convert(x[1]) for x in sorted(container.items()))
             if not force_list and len(values) == 1:
                 values = values[0]
 
             if not container:
                 return values
             return _convert(container)
-        elif container.pop(_list_marker, False):
+        if container.pop(_list_marker, False):
             return [_convert(x[1]) for x in sorted(container.items())]
-        return dict_cls((k, _convert(v)) for k, v in iteritems(container))
+        return dict_cls((k, _convert(v)) for k, v in container.items())
 
     result = dict_cls()
 
@@ -224,7 +217,7 @@ def decode_flat_data(itemiter, dict_cls=dict):
         for part in parts:
             last_container = container
             container = _enter_container(container, part)
-            last_container[_list_marker] = isinstance(part, integer_types)
+            last_container[_list_marker] = isinstance(part, int)
         container[_value_marker] = [value]
 
     return _convert(result)
@@ -240,20 +233,36 @@ def merge(a, b):
         for idx, (item_1, item_2) in enumerate(zip(a, b)):
             a[idx] = merge(item_1, item_2)
     if isinstance(a, dict) and isinstance(b, dict):
-        for key, value in iteritems(b):
+        for key, value in b.items():
             a[key] = merge(a.get(key), value)
         return a
     return a
 
 
-def secure_filename(filename, fallback_name='file'):
-    base = filename.replace('/', ' ').replace('\\', ' ')
+def slugify(text):
+    """
+    A wrapper around python-slugify which preserves file extensions
+    and forward slashes.
+    """
+
+    parts = text.split("/")
+    parts[-1], ext = magic_split_ext(parts[-1])
+
+    out = "/".join(_slugify(part) for part in parts)
+
+    if ext:
+        return out + "." + ext
+    return out
+
+
+def secure_filename(filename, fallback_name="file"):
+    base = filename.replace("/", " ").replace("\\", " ")
     basename, ext = magic_split_ext(base)
-    rv = slugify(basename).lstrip('.')
+    rv = slugify(basename).lstrip(".")
     if not rv:
         rv = fallback_name
     if ext:
-        return rv + '.' + ext
+        return rv + "." + ext
     return rv
 
 
@@ -265,10 +274,10 @@ def increment_filename(filename):
     if match is not None:
         rv = match.group(1) + str(int(match.group(2)) + 1) + match.group(3)
     else:
-        rv = basename + '2'
+        rv = basename + "2"
 
     if ext:
-        rv += '.' + ext
+        rv += "." + ext
     if directory:
         return os.path.join(directory, rv)
     return rv
@@ -281,26 +290,23 @@ def locate_executable(exe_file, cwd=None, include_bundle_path=True):
     resolve = True
 
     # If it's already a path, we don't resolve.
-    if os.path.sep in exe_file or \
-       (os.path.altsep and os.path.altsep in exe_file):
+    if os.path.sep in exe_file or (os.path.altsep and os.path.altsep in exe_file):
         resolve = False
 
-    extensions = os.environ.get('PATHEXT', '').split(';')
+    extensions = os.environ.get("PATHEXT", "").split(";")
     _, ext = os.path.splitext(exe_file)
-    if os.name != 'nt' and '' not in extensions or \
-       any(ext.lower() == extension.lower() for extension in extensions):
-        extensions.insert(0, '')
+    if (
+        os.name != "nt"
+        and "" not in extensions
+        or any(ext.lower() == extension.lower() for extension in extensions)
+    ):
+        extensions.insert(0, "")
 
     if resolve:
-        paths = os.environ.get('PATH', '').split(os.pathsep)
-        if BUNDLE_BIN_PATH and include_bundle_path:
-            paths.insert(0, BUNDLE_BIN_PATH)
-        for extra_path in EXTRA_PATHS:
-            if extra_path not in paths:
-                paths.append(extra_path)
+        paths = os.environ.get("PATH", "").split(os.pathsep)
         choices = [os.path.join(path, exe_file) for path in paths]
 
-    if os.name == 'nt':
+    if os.name == "nt":
         choices.append(os.path.join((cwd or os.getcwd()), exe_file))
 
     try:
@@ -310,11 +316,10 @@ def locate_executable(exe_file, cwd=None, include_bundle_path=True):
                     return path + ext
         return None
     except OSError:
-        pass
+        return None
 
 
 class JSONEncoder(json.JSONEncoder):
-
     def default(self, o):  # pylint: disable=method-hidden
         if is_undefined(o):
             return None
@@ -322,20 +327,22 @@ class JSONEncoder(json.JSONEncoder):
             return http_date(o)
         if isinstance(o, uuid.UUID):
             return str(o)
-        if hasattr(o, '__html__'):
-            return text_type(o.__html__())
+        if hasattr(o, "__html__"):
+            return str(o.__html__())
         return json.JSONEncoder.default(self, o)
 
 
 def htmlsafe_json_dump(obj, **kwargs):
-    kwargs.setdefault('cls', JSONEncoder)
-    rv = json.dumps(obj, **kwargs) \
-        .replace(u'<', u'\\u003c') \
-        .replace(u'>', u'\\u003e') \
-        .replace(u'&', u'\\u0026') \
-        .replace(u"'", u'\\u0027')
+    kwargs.setdefault("cls", JSONEncoder)
+    rv = (
+        json.dumps(obj, **kwargs)
+        .replace(u"<", u"\\u003c")
+        .replace(u">", u"\\u003e")
+        .replace(u"&", u"\\u0026")
+        .replace(u"'", u"\\u0027")
+    )
     if not _slash_escape:
-        rv = rv.replace('\\/', '/')
+        rv = rv.replace("\\/", "/")
     return rv
 
 
@@ -349,10 +356,10 @@ def safe_call(func, args=None, kwargs=None):
     except Exception:
         # XXX: logging
         traceback.print_exc()
+        return None
 
 
 class Worker(Thread):
-
     def __init__(self, tasks):
         Thread.__init__(self)
         self.tasks = tasks
@@ -366,12 +373,11 @@ class Worker(Thread):
             self.tasks.task_done()
 
 
-class WorkerPool(object):
-
+class WorkerPool:
     def __init__(self, num_threads=None):
         if num_threads is None:
             num_threads = multiprocessing.cpu_count()
-        self.tasks = queue.Queue(num_threads)
+        self.tasks = Queue(num_threads)
         for _ in range(num_threads):
             Worker(self.tasks)
 
@@ -382,8 +388,7 @@ class WorkerPool(object):
         self.tasks.join()
 
 
-class Url(object):
-
+class Url:
     def __init__(self, value):
         self.url = value
         u = url_parse(value)
@@ -437,7 +442,7 @@ def prune_file_and_folder(name, base):
 
 
 def sort_normalize_string(s):
-    return unicodedata.normalize('NFD', text_type(s).lower().strip())
+    return unicodedata.normalize("NFD", str(s).lower().strip())
 
 
 def get_dependent_url(url_path, suffix, ext=None):
@@ -445,14 +450,15 @@ def get_dependent_url(url_path, suffix, ext=None):
     url_base, url_ext = posixpath.splitext(url_filename)
     if ext is None:
         ext = url_ext
-    return posixpath.join(url_directory, url_base + u'@' + suffix + ext)
+    return posixpath.join(url_directory, url_base + u"@" + suffix + ext)
 
 
 @contextmanager
-def atomic_open(filename, mode='r'):
-    if 'r' not in mode:
+def atomic_open(filename, mode="r"):
+    if "r" not in mode:
         fd, tmp_filename = tempfile.mkstemp(
-            dir=os.path.dirname(filename), prefix='.__atomic-write')
+            dir=os.path.dirname(filename), prefix=".__atomic-write"
+        )
         os.chmod(tmp_filename, 0o644)
         f = os.fdopen(fd, mode)
     else:
@@ -460,15 +466,18 @@ def atomic_open(filename, mode='r'):
         tmp_filename = None
     try:
         yield f
-    except:  # pylint: disable=bare-except
+    except Exception as e:
         f.close()
-        exc_type, exc_value, tb = sys.exc_info()
+        _exc_type, exc_value, tb = sys.exc_info()
         if tmp_filename is not None:
             try:
                 os.remove(tmp_filename)
             except OSError:
                 pass
-        reraise(exc_type, exc_value, tb)
+
+        if exc_value.__traceback__ is not tb:
+            raise exc_value.with_traceback(tb) from e
+        raise exc_value from e
     else:
         f.close()
         if tmp_filename is not None:
@@ -481,46 +490,49 @@ def portable_popen(cmd, *args, **kwargs):
     in the bundle bin.
     """
     if cmd[0] is None:
-        raise RuntimeError('No executable specified')
-    exe = locate_executable(cmd[0], kwargs.get('cwd'))
+        raise RuntimeError("No executable specified")
+    exe = locate_executable(cmd[0], kwargs.get("cwd"))
     if exe is None:
         raise RuntimeError('Could not locate executable "%s"' % cmd[0])
 
-    if isinstance(exe, text_type) and sys.platform != 'win32':
+    if isinstance(exe, str) and sys.platform != "win32":
         exe = exe.encode(sys.getfilesystemencoding())
     cmd[0] = exe
     return subprocess.Popen(cmd, *args, **kwargs)
 
 
 def is_valid_id(value):
-    if value == '':
+    if value == "":
         return True
     return (
-        '/' not in value and
-        value.strip() == value and
-        value.split() == [value] and
-        not value.startswith('.')
+        "/" not in value
+        and value.strip() == value
+        and value.split() == [value]
+        and not value.startswith(".")
     )
 
 
 def secure_url(url):
     url = urls.url_parse(url)
     if url.password is not None:
-        url = url.replace(netloc='%s@%s' % (
-            url.username,
-            url.netloc.split('@')[-1],
-        ))
+        url = url.replace(
+            netloc="%s@%s"
+            % (
+                url.username,
+                url.netloc.split("@")[-1],
+            )
+        )
     return url.to_url()
 
 
 def bool_from_string(val, default=None):
     if val in (True, False, 1, 0):
         return bool(val)
-    if isinstance(val, string_types):
+    if isinstance(val, str):
         val = val.lower()
-        if val in ('true', 'yes', '1'):
+        if val in ("true", "yes", "1"):
             return True
-        elif val in ('false', 'no', '0'):
+        if val in ("false", "no", "0"):
             return False
     return default
 
@@ -559,8 +571,7 @@ def get_relative_path(source, target):
     """
 
     if not source.is_absolute() and target.is_absolute():
-        raise ValueError("Cannot navigate from a relative path"
-                         " to an absolute one")
+        raise ValueError("Cannot navigate from a relative path" " to an absolute one")
 
     if source.is_absolute() and not target.is_absolute():
         # nothing to do
@@ -590,6 +601,9 @@ def get_relative_path(source, target):
         else:
             # prepend the distance to the common ancestor
             return distance / relpath
+    # We should never get here.  (The last ancestor in source.parents will
+    # be '.' — target.relative_to('.') will always succeed.)
+    raise AssertionError("This should not happen")
 
 
 def get_structure_hash(params):
@@ -598,49 +612,53 @@ def get_structure_hash(params):
     quite a few are.
     """
     h = hashlib.md5()
+
     def _hash(obj):
         if obj is None:
-            h.update('N;')
+            h.update("N;")
         elif obj is True:
-            h.update('T;')
+            h.update("T;")
         elif obj is False:
-            h.update('F;')
+            h.update("F;")
         elif isinstance(obj, dict):
-            h.update('D%d;' % len(obj))
+            h.update("D%d;" % len(obj))
             for key, value in sorted(obj.items()):
                 _hash(key)
                 _hash(value)
         elif isinstance(obj, tuple):
-            h.update('T%d;' % len(obj))
+            h.update("T%d;" % len(obj))
             for item in obj:
                 _hash(item)
         elif isinstance(obj, list):
-            h.update('L%d;' % len(obj))
+            h.update("L%d;" % len(obj))
             for item in obj:
                 _hash(item)
-        elif isinstance(obj, integer_types):
-            h.update('T%d;' % obj)
+        elif isinstance(obj, int):
+            h.update("T%d;" % obj)
         elif isinstance(obj, bytes):
-            h.update('B%d;%s;' % (len(obj), obj))
-        elif isinstance(obj, text_type):
-            h.update('S%d;%s;' % (len(obj), obj.encode('utf-8')))
-        elif hasattr(obj, '__get_lektor_param_hash__'):
+            h.update("B%d;%s;" % (len(obj), obj))
+        elif isinstance(obj, str):
+            h.update("S%d;%s;" % (len(obj), obj.encode("utf-8")))
+        elif hasattr(obj, "__get_lektor_param_hash__"):
             obj.__get_lektor_param_hash__(h)
+
     _hash(params)
     return h.hexdigest()
 
 
 def profile_func(func):
+    # pylint: disable=import-outside-toplevel
+
     from cProfile import Profile
     from pstats import Stats
 
     p = Profile()
     rv = []
     p.runcall(lambda: rv.append(func()))
-    p.dump_stats('/tmp/lektor-%s.prof' % func.__name__)
+    p.dump_stats("/tmp/lektor-%s.prof" % func.__name__)
 
     stats = Stats(p, stream=sys.stderr)
-    stats.sort_stats('time', 'calls')
+    stats.sort_stats("time", "calls")
     stats.print_stats()
 
     return rv[0]
@@ -657,62 +675,62 @@ def deg_to_dms(deg):
 def format_lat_long(lat=None, long=None, secs=True):
     def _format(value, sign):
         d, m, sd = deg_to_dms(value)
-        return u'%d° %d′ %s%s' % (
+        return u"%d° %d′ %s%s" % (
             abs(d),
             abs(m),
-            secs and (u'%d″ ' % abs(sd)) or '',
+            secs and (u"%d″ " % abs(sd)) or "",
             sign[d < 0],
         )
+
     rv = []
     if lat is not None:
-        rv.append(_format(lat, 'NS'))
+        rv.append(_format(lat, "NS"))
     if long is not None:
-        rv.append(_format(long, 'EW'))
-    return u', '.join(rv)
+        rv.append(_format(long, "EW"))
+    return u", ".join(rv)
 
 
 def get_app_dir():
-    return click.get_app_dir('Lektor')
+    return click.get_app_dir("Lektor")
 
 
 def get_cache_dir():
     if is_windows:
-        folder = os.environ.get('LOCALAPPDATA')
+        folder = os.environ.get("LOCALAPPDATA")
         if folder is None:
-            folder = os.environ.get('APPDATA')
+            folder = os.environ.get("APPDATA")
             if folder is None:
-                folder = os.path.expanduser('~')
-        return os.path.join(folder, 'Lektor', 'Cache')
-    if sys.platform == 'darwin':
-        return os.path.join(os.path.expanduser('~/Library/Caches/Lektor'))
+                folder = os.path.expanduser("~")
+        return os.path.join(folder, "Lektor", "Cache")
+    if sys.platform == "darwin":
+        return os.path.join(os.path.expanduser("~/Library/Caches/Lektor"))
     return os.path.join(
-        os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')),
-        'lektor')
+        os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "lektor"
+    )
 
 
-class URLBuilder(object):
-
+class URLBuilder:
     def __init__(self):
         self.items = []
 
     def append(self, item):
         if item is None:
             return
-        item = text_type(item).strip('/')
+        item = str(item).strip("/")
         if item:
             self.items.append(item)
 
     def get_url(self, trailing_slash=None):
-        url = '/' + '/'.join(self.items)
+        url = "/" + "/".join(self.items)
         if trailing_slash is not None and not trailing_slash:
             return url
-        if url == '/':
+        if url == "/":
             return url
         if trailing_slash is None:
-            rest, last = url.split('/', 1)
-            if '.' in last:
+            _, last = url.split("/", 1)
+            if "." in last:
                 return url
-        return url + '/'
+        return url + "/"
 
 
 def build_url(iterable, trailing_slash=None):
@@ -724,7 +742,20 @@ def build_url(iterable, trailing_slash=None):
 
 def comma_delimited(s):
     """Split a comma-delimited string."""
-    for part in s.split(','):
+    for part in s.split(","):
         stripped = part.strip()
         if stripped:
             yield stripped
+
+
+def process_extra_flags(flags):
+    if isinstance(flags, dict):
+        return flags
+    rv = {}
+    for flag in flags or ():
+        if ":" in flag:
+            k, v = flag.split(":", 1)
+            rv[k] = v
+        else:
+            rv[flag] = flag
+    return rv

@@ -2,10 +2,10 @@ import threading
 from weakref import ref as weakref
 
 import mistune
-from markupsafe import Markup, escape
+from markupsafe import escape
+from markupsafe import Markup
 from werkzeug.urls import url_parse
 
-from lektor._compat import PY2
 from lektor.context import get_ctx
 
 
@@ -13,13 +13,11 @@ _markdown_cache = threading.local()
 
 
 class ImprovedRenderer(mistune.Renderer):
-
     def link(self, link, title, text):
         if self.record is not None:
             url = url_parse(link)
             if not url.scheme:
-                link = self.record.url_to('!' + link,
-                                          base_url=get_ctx().base_url)
+                link = self.record.url_to("!" + link, base_url=get_ctx().base_url)
         link = escape(link)
         if not title:
             return '<a href="%s">%s</a>' % (link, text)
@@ -30,8 +28,7 @@ class ImprovedRenderer(mistune.Renderer):
         if self.record is not None:
             url = url_parse(src)
             if not url.scheme:
-                src = self.record.url_to('!' + src,
-                                         base_url=get_ctx().base_url)
+                src = self.record.url_to("!" + src, base_url=get_ctx().base_url)
         src = escape(src)
         text = escape(text)
         if title:
@@ -40,55 +37,53 @@ class ImprovedRenderer(mistune.Renderer):
         return '<img src="%s" alt="%s">' % (src, text)
 
 
-class MarkdownConfig(object):
-
+class MarkdownConfig:
     def __init__(self):
         self.options = {
-            'escape': False,
+            "escape": False,
         }
         self.renderer_base = ImprovedRenderer
         self.renderer_mixins = []
 
     def make_renderer(self):
         bases = tuple(self.renderer_mixins) + (self.renderer_base,)
-        renderer_cls = type('renderer_cls', bases, {})
+        renderer_cls = type("renderer_cls", bases, {})
         return renderer_cls(**self.options)
 
 
 def make_markdown(env):
     cfg = MarkdownConfig()
-    env.plugin_controller.emit('markdown-config', config=cfg)
+    env.plugin_controller.emit("markdown-config", config=cfg)
     renderer = cfg.make_renderer()
-    env.plugin_controller.emit('markdown-lexer-config', config=cfg, renderer=renderer)
+    env.plugin_controller.emit("markdown-lexer-config", config=cfg, renderer=renderer)
     return mistune.Markdown(renderer, **cfg.options)
 
 
 def markdown_to_html(text, record=None):
     ctx = get_ctx()
     if ctx is None:
-        raise RuntimeError('Context is required for markdown rendering')
+        raise RuntimeError("Context is required for markdown rendering")
 
     # These markdown parsers are all terrible.  Not one of them does not
     # modify internal state.  So since we only do one of those per thread
     # we can at least cache them on a thread local.
-    md = getattr(_markdown_cache, 'md', None)
+    md = getattr(_markdown_cache, "md", None)
     if md is None:
         md = make_markdown(ctx.env)
         _markdown_cache.md = md
 
     meta = {}
-    ctx.env.plugin_controller.emit('markdown-meta-init', meta=meta,
-                                   record=record)
+    ctx.env.plugin_controller.emit("markdown-meta-init", meta=meta, record=record)
     md.renderer.meta = meta
     md.renderer.record = record
     rv = md(text)
-    ctx.env.plugin_controller.emit('markdown-meta-postprocess', meta=meta,
-                                   record=record)
+    ctx.env.plugin_controller.emit(
+        "markdown-meta-postprocess", meta=meta, record=record
+    )
     return rv, meta
 
 
-class Markdown(object):
-
+class Markdown:
     def __init__(self, source, record=None):
         self.source = source
         self.__record = weakref(record) if record is not None else lambda: None
@@ -98,6 +93,7 @@ class Markdown(object):
 
     def __bool__(self):
         return bool(self.source)
+
     __nonzero__ = __bool__
 
     def __render(self):
@@ -106,10 +102,8 @@ class Markdown(object):
         # we were put into the cache to the time where we got referenced
         # by something elsewhere.  In that case we need to re-process our
         # markdown.  For instance this affects relative links.
-        if self.__html is None or \
-           self.__cached_for_ctx != get_ctx():
-            self.__html, self.__meta = markdown_to_html(
-                self.source, self.__record())
+        if self.__html is None or self.__cached_for_ctx != get_ctx():
+            self.__html, self.__meta = markdown_to_html(self.source, self.__record())
             self.__cached_for_ctx = get_ctx()
 
     @property
@@ -125,12 +119,9 @@ class Markdown(object):
     def __getitem__(self, name):
         return self.meta[name]
 
-    def __unicode__(self):
+    def __str__(self):
         self.__render()
         return self.__html
-
-    if not PY2:
-        __str__ = __unicode__
 
     def __html__(self):
         self.__render()

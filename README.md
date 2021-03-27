@@ -4,6 +4,7 @@
 [![Code Coverage](https://codecov.io/gh/lektor/lektor/branch/master/graph/badge.svg)](https://codecov.io/gh/lektor/lektor)
 [![PyPI version](https://badge.fury.io/py/Lektor.svg)](https://pypi.org/project/Lektor/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/Lektor.svg)](https://pypi.org/project/Lektor/)
+[![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 <img alt="node:?" src="https://img.shields.io/badge/node-%3E=8-blue.svg"/>
 [![Join the chat at https://gitter.im/lektor/lektor](https://badges.gitter.im/lektor/lektor.svg)](https://gitter.im/lektor/lektor?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
@@ -13,13 +14,11 @@ admin UI and minimal desktop app.
 
 <img src="https://raw.githubusercontent.com/lektor/lektor-assets/master/screenshots/admin.png" width="100%">
 
-To see how it works look at the ``example`` folder which contains a
-very basic project to get started.
+To see how it works look at the top-level `example/` folder, which contains
+a showcase of the wide variety of Lektor's features.
 
-For a more complete website look at [lektor/lektor-website](https://github.com/lektor/lektor-website)
-which contains the sourcecode for the official lektor website. We also have the example project at the
-top level of this repository `example/` that is a lean example of the wide variety of the features
-of Lektor.
+For a more complete example look at the [lektor/lektor-website](https://github.com/lektor/lektor-website)
+repository, which contains the sourcecode for the official lektor website.
 
 ## How do I use this?
 
@@ -30,7 +29,8 @@ For installation instructions head to the official documentation:
 
 ## Want to develop on Lektor?
 
-This gets you started:
+This gets you started (assuming you have Python, pip, Make and pre-commit
+installed):
 
 ```
 $ git clone https://github.com/lektor/lektor
@@ -39,17 +39,14 @@ $ virtualenv venv
 $ . venv/bin/activate
 $ pip install --editable .
 $ make build-js
-$ make install-git-hooks
+$ pre-commit install
 $ export LEKTOR_DEV=1
 $ cp -r example example-project
 $ lektor --project example-project server
 ```
 
-If you want to run the test suite:
+If you want to run the test suite (you'll need tox installed):
 
 ```
-$ virtualenv venv
-$ . venv/bin/activate
-$ pip install --editable ".[test]"
-$ make test
+$ tox
 ```

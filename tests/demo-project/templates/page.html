@@ -24,8 +24,10 @@
     <img src="{{ ts|url }}" width="{{ ts.width }}" height="{{ ts.height }}">
 
     {# larger than original#}
-    {% set t0 = img.thumbnail(400, 600) %}
-    <img alt="original" src="{{ t0|url }}" width="{{ t0.width }}" height="{{ t0.height }}">
+    {% set t0 = img.thumbnail(400, 600, upscale=True) %}
+    <img alt="upscaled" src="{{ t0|url }}" width="{{ t0.width }}" height="{{ t0.height }}">
+    {% set t1 = img.thumbnail(400, 600, upscale=False) %}
+    <img alt="original" src="{{ t1|url }}" width="{{ t1.width }}" height="{{ t1.height }}">
   {% endfor %}
 
   {# Not all subpages have a video clip, so we test for that here #}

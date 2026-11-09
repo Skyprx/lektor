@@ -104,7 +104,6 @@
   "INITIALIZING_LEKTOR": "Initializing Lektor ...",
   "QUIT_LEKTOR": "Quit Lektor",
   "FILE": "File",
-  "EDIT": "Edit",
   "UNDO": "Undo",
   "REDO": "Redo",
   "CUT": "Cut",
@@ -123,5 +122,17 @@
   "OK": "OK",
   "FAILED_TO_OPEN_CONTENT_FILE": "Failed to open content file",
   "OPEN_OTHER_PROJECT": "Open other Project",
-  "OPEN_OTHER_PROJECT_QUESTION": "Opening this file requires opening another project (%s). The current project will be closed. Do you want to continue?"
+  "OPEN_OTHER_PROJECT_QUESTION": "Opening this file requires opening another project (%s). The current project will be closed. Do you want to continue?",
+  "COLLAPSE": "Collapse",
+  "EXPAND": "Expand",
+  "TRISTATE_CHECKBOX_TOOLTIP": "Tri-state checkbox: use <del> or <backspace> to revert to unset",
+  "AUTOSIZE_TEXTAREA": "Autosize textarea",
+  "SHRINK_TEXTAREA": "Shrink textarea",
+  "PREFERENCES": "Preferences",
+  "RESET": "Reset",
+  "RESET_TO_DEFAULTS": "Reset to defaults",
+  "EDIT_SHORTCUT": "Edit",
+  "SAVE_SHORTCUT": "Save",
+  "PREVIEW_SHORTCUT": "(Save &) Preview",
+  "SEARCH_SHORTCUT": "Search"
 }

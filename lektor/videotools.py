@@ -1,17 +1,19 @@
-# -*- coding: utf-8 -*-
 import decimal
 import json
-import subprocess
 import os
+import subprocess
 from collections import namedtuple
 from datetime import timedelta
 
-from lektor.imagetools import Thumbnail, ThumbnailMode
+from lektor.imagetools import Thumbnail
+from lektor.imagetools import ThumbnailMode
 from lektor.reporter import reporter
-from lektor.utils import get_dependent_url, portable_popen, locate_executable
+from lektor.utils import get_dependent_url
+from lektor.utils import locate_executable
+from lektor.utils import portable_popen
 
 
-THUMBNAIL_FORMATS = frozenset(['jpg', 'jpeg', 'png'])
+THUMBNAIL_FORMATS = frozenset(["jpg", "jpeg", "png"])
 
 
 def _imround(x):
@@ -19,10 +21,10 @@ def _imround(x):
     return decimal.Decimal(x).to_integral(decimal.ROUND_HALF_UP)
 
 
-Rescaling = namedtuple('Rescaling', ['rescale', 'crop'])
+Rescaling = namedtuple("Rescaling", ["rescale", "crop"])
 
 
-class Dimensions(namedtuple('Dimensions', ['width', 'height'])):
+class Dimensions(namedtuple("Dimensions", ["width", "height"])):
     __slots__ = ()
 
     def __new__(cls, width, height):
@@ -30,9 +32,9 @@ class Dimensions(namedtuple('Dimensions', ['width', 'height'])):
         height = int(height)
 
         if width < 1 or height < 1:
-            raise ValueError('Invalid dimensions')
+            raise ValueError("Invalid dimensions")
 
-        return super(Dimensions, cls).__new__(cls, width, height)
+        return super().__new__(cls, width, height)
 
     @property
     def aspect_ratio(self):
@@ -154,16 +156,15 @@ class Dimensions(namedtuple('Dimensions', ['width', 'height'])):
 
         return Rescaling(rescale=dim, crop=dim)
 
-    def resize(self, width=None, height=None, mode=ThumbnailMode.DEFAULT,
-               upscale=None):
+    def resize(self, width=None, height=None, mode=ThumbnailMode.DEFAULT, upscale=None):
         if mode == ThumbnailMode.FIT:
             return self.fit_within(width, height, upscale)
-        elif mode == ThumbnailMode.CROP:
+        if mode == ThumbnailMode.CROP:
             return self.cover(width, height, upscale)
-        elif mode == ThumbnailMode.STRETCH:
+        if mode == ThumbnailMode.STRETCH:
             return self.stretch(width, height, upscale)
-        else:
-            raise ValueError('Unexpected mode "{!r}"'.format(mode))
+
+        raise ValueError(f'Unexpected mode "{mode!r}"')
 
 
 def get_timecode(td):
@@ -179,12 +180,11 @@ def get_timecode(td):
     minutes = int(seconds // 60)
     seconds %= 60
 
-    str_seconds, str_decimals = str(float(seconds)).split('.')
+    str_seconds, str_decimals = str(float(seconds)).split(".")
 
-    timecode = '{:02d}:{:02d}:{}'.format(
-        hours, minutes, str_seconds.zfill(2))
-    if str_decimals != '0':
-        timecode += '.{}'.format(str_decimals)
+    timecode = f"{hours:02d}:{minutes:02d}:{str_seconds.zfill(2)}"
+    if str_decimals != "0":
+        timecode += f".{str_decimals}"
 
     return timecode
 
@@ -206,20 +206,20 @@ def get_ffmpeg_quality(quality_percent):
 
 def get_suffix(seek, width, height, mode, quality):
     """Make suffix for a thumbnail that is unique to the given parameters."""
-    timecode = get_timecode(seek).replace(':', '-').replace('.', '-')
-    suffix = 't%s' % timecode
+    timecode = get_timecode(seek).replace(":", "-").replace(".", "-")
+    bits = [f"t{timecode}"]
 
     if width is not None or height is not None:
-        suffix += '_%s' % 'x'.join(
-            str(x) for x in [width, height] if x is not None)
+        dimension = "x".join(str(x) for x in [width, height] if x is not None)
+        bits.append(dimension)
 
     if mode != ThumbnailMode.DEFAULT:
-        suffix += '_%s' % mode.label
+        bits.append(mode.value)
 
     if quality is not None:
-        suffix += '_q%s' % quality
+        bits.append(f"q{quality}")
 
-    return suffix
+    return "_".join(bits)
 
 
 def get_video_info(filename):
@@ -227,44 +227,48 @@ def get_video_info(filename):
 
     Returns a dict with: width, height and duration.
     """
-    ffprobe = locate_executable('ffprobe')
+    ffprobe = locate_executable("ffprobe")
     if ffprobe is None:
-        raise RuntimeError('Failed to locate ffprobe')
+        raise RuntimeError("Failed to locate ffprobe")
 
-    proc = portable_popen([
-        ffprobe,
-        '-v', 'quiet',
-        '-print_format', 'json',
-        '-show_format',
-        '-show_streams',
-        filename,
-    ], stdout=subprocess.PIPE)
+    proc = portable_popen(
+        [
+            ffprobe,
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            filename,
+        ],
+        stdout=subprocess.PIPE,
+    )
     stdout, _ = proc.communicate()
 
     if proc.returncode != 0:
-        raise RuntimeError('ffprobe exited with code %d' % proc.returncode)
+        raise RuntimeError(f"ffprobe exited with code {proc.returncode}")
 
     ffprobe_data = json.loads(stdout.decode("utf8"))
     info = {
-        'width': None,
-        'height': None,
-        'duration': None,
+        "width": None,
+        "height": None,
+        "duration": None,
     }
 
     # Try to extract total video duration
     try:
-        info['duration'] = timedelta(
-            seconds=float(ffprobe_data['format']['duration']))
+        info["duration"] = timedelta(seconds=float(ffprobe_data["format"]["duration"]))
     except (KeyError, TypeError, ValueError):
         pass
 
     # Try to extract width and height from the first found video stream
-    for stream in ffprobe_data['streams']:
-        if stream['codec_type'] != 'video':
+    for stream in ffprobe_data["streams"]:
+        if stream["codec_type"] != "video":
             continue
 
-        info['width'] = int(stream['width'])
-        info['height'] = int(stream['height'])
+        info["width"] = int(stream["width"])
+        info["height"] = int(stream["height"])
 
         # We currently don't bother with multiple video streams
         break
@@ -272,12 +276,22 @@ def get_video_info(filename):
     return info
 
 
-def make_video_thumbnail(ctx, source_video, source_url_path, seek, width=None,
-                         height=None, mode=ThumbnailMode.DEFAULT, upscale=None,
-                         quality=None, format=None):
+def make_video_thumbnail(
+    ctx,
+    source_video,
+    source_url_path,
+    seek,
+    *,
+    width=None,
+    height=None,
+    mode=ThumbnailMode.DEFAULT,
+    upscale=None,
+    quality=None,
+    format=None,
+):
     if mode != ThumbnailMode.FIT and (width is None or height is None):
         msg = '"%s" mode requires both `width` and `height` to be defined.'
-        raise ValueError(msg % mode.label)
+        raise ValueError(msg % mode.value)
 
     if upscale is None:
         upscale = {
@@ -287,64 +301,71 @@ def make_video_thumbnail(ctx, source_video, source_url_path, seek, width=None,
         }[mode]
 
     if format is None:
-        format = 'jpg'
+        format = "jpg"
     if format not in THUMBNAIL_FORMATS:
-        raise ValueError('Invalid thumbnail format "%s"' % format)
+        raise ValueError(f'Invalid thumbnail format "{format}"')
 
-    if quality is not None and format != 'jpg':
-        raise ValueError(
-            'The quality parameter is only supported for jpeg images')
+    if quality is not None and format != "jpg":
+        raise ValueError("The quality parameter is only supported for jpeg images")
 
     if seek < timedelta(0):
-        raise ValueError('Seek must not be negative')
+        raise ValueError("Seek must not be negative")
 
-    ffmpeg = locate_executable('ffmpeg')
+    ffmpeg = locate_executable("ffmpeg")
     if ffmpeg is None:
-        raise RuntimeError('Failed to locate ffmpeg')
+        raise RuntimeError("Failed to locate ffmpeg")
     info = get_video_info(source_video)
 
-    source_dim = Dimensions(info['width'], info['height'])
+    source_dim = Dimensions(info["width"], info["height"])
     resize_dim, crop_dim = source_dim.resize(width, height, mode, upscale)
 
     # Construct a filename suffix unique to the given parameters
     suffix = get_suffix(seek, width, height, mode=mode, quality=quality)
-    dst_url_path = get_dependent_url(source_url_path, suffix,
-                                     ext='.{}'.format(format))
+    dst_url_path = get_dependent_url(source_url_path, suffix, ext=f".{format}")
 
-    if quality is None and format == 'jpg':
+    if quality is None and format == "jpg":
         quality = 95
 
-    @ctx.sub_artifact(artifact_name=dst_url_path, sources=[source_video])
     def build_thumbnail_artifact(artifact):
         artifact.ensure_dir()
 
-        vfilter = 'thumbnail,scale={rw}:{rh},crop={tw}:{th}'.format(
-            rw=resize_dim.width,
-            rh=resize_dim.height,
-            tw=crop_dim.width,
-            th=crop_dim.height,
+        vfilter = (
+            "thumbnail",
+            f"scale={resize_dim.width}:{resize_dim.height}",
+            f"crop={crop_dim.width}:{crop_dim.height}",
         )
 
         cmdline = [
             ffmpeg,
-            '-loglevel', '-8',
-            '-ss', get_timecode(seek),  # Input seeking since it's faster
-            '-i', source_video,
-            '-vf', vfilter,
-            '-frames:v', '1',
-            '-qscale:v', str(get_ffmpeg_quality(quality)),
+            "-loglevel",
+            "-8",
+            "-ss",
+            get_timecode(seek),  # Input seeking since it's faster
+            "-i",
+            source_video,
+            "-vf",
+            ",".join(vfilter),
+            "-frames:v",
+            "1",
+            "-qscale:v",
+            str(get_ffmpeg_quality(quality)),
             artifact.dst_filename,
         ]
 
-        reporter.report_debug_info('ffmpeg cmd line', cmdline)
+        reporter.report_debug_info("ffmpeg cmd line", cmdline)
         proc = portable_popen(cmdline)
         if proc.wait() != 0:
-            raise RuntimeError(
-                'ffmpeg exited with code {}'.format(proc.returncode))
+            raise RuntimeError(f"ffmpeg exited with code {proc.returncode}")
 
         if not os.path.exists(artifact.dst_filename):
-            msg = ('Unable to create video thumbnail for {!r}. Maybe the seek '
-                   'is outside of the video duration?')
-            raise RuntimeError(msg.format(source_video))
+            msg = (
+                f"Unable to create video thumbnail for {source_video!r}. "
+                "Maybe the seek is outside of the video duration?"
+            )
+            raise RuntimeError(msg)
+
+    ctx.sub_artifact(artifact_name=dst_url_path, sources=[source_video])(
+        build_thumbnail_artifact
+    )
 
     return Thumbnail(dst_url_path, crop_dim.width, crop_dim.height)

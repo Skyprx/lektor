@@ -1,23 +1,18 @@
+import json
 import os
-
-from flask import json
-
-from lektor._compat import iteritems
-from lektor.uilink import UI_LANG
-
-
-translations_path = os.path.join(os.path.abspath(os.path.dirname(__file__)),
-                                 'translations')
-KNOWN_LANGUAGES = list(x[:-5] for x in os.listdir(translations_path)
-                       if x.endswith('.json'))
+from importlib import resources
+from pathlib import Path
 
 
 translations = {}
-for _lang in KNOWN_LANGUAGES:
-    # We use flask.json here which can deal with bytes unlike the stdlib
-    # json module which barfs on bytes on 3.x
-    with open(os.path.join(translations_path, _lang + '.json'), 'rb') as f:
-        translations[_lang] = json.load(f)
+for file in resources.files("lektor").joinpath("translations").iterdir():
+    filename = Path(file.name)
+    if filename.suffix == ".json" and file.is_file():
+        lang = filename.stem
+        with file.open("rb") as f:
+            translations[lang] = json.load(f)
+
+KNOWN_LANGUAGES = set(translations.keys())
 
 
 def get_translations(language):
@@ -32,16 +27,14 @@ def is_valid_language(lang):
 
 def get_default_lang():
     """Returns the default language the system should use."""
-    if UI_LANG is not None:
-        return UI_LANG
-    for key in 'LANGUAGE', 'LC_ALL', 'LC_CTYPE', 'LANG':
+    for key in "LANGUAGE", "LC_ALL", "LC_CTYPE", "LANG":
         value = os.environ.get(key)
         if not value:
             continue
-        lang = value.split('_')[0].lower()
+        lang = value.split("_")[0].lower()
         if is_valid_language(lang):
             return lang
-    return 'en'
+    return "en"
 
 
 def load_i18n_block(key):
@@ -63,10 +56,11 @@ def get_i18n_block(inifile_or_dict, key, pop=False):
         if k == key:
             # English is the internal default language with preferred
             # treatment.
-            rv['en'] = inifile_or_dict.pop(k) if pop else inifile_or_dict[k]
-        elif k.startswith(key + '['):
-            rv[k[len(key) + 1:-1]] = (inifile_or_dict.pop(k) if pop
-                                      else inifile_or_dict[k])
+            rv["en"] = inifile_or_dict.pop(k) if pop else inifile_or_dict[k]
+        elif k.startswith(key + "["):
+            rv[k[len(key) + 1 : -1]] = (
+                inifile_or_dict.pop(k) if pop else inifile_or_dict[k]
+            )
     return rv
 
 
@@ -76,10 +70,10 @@ def generate_i18n_kvs(**opts):
     and returned once for every language that has a known translation.
     """
     for key, value in opts.items():
-        if key.endswith('_i18n'):
+        if key.endswith("_i18n"):
             base_key = key[:-5]
-            for lang, trans in iteritems(load_i18n_block(value)):
-                lang_key = '%s[%s]' % (base_key, lang)
+            for lang, trans in load_i18n_block(value).items():
+                lang_key = f"{base_key}[{lang}]"
                 yield lang_key, trans
         else:
             yield key, value

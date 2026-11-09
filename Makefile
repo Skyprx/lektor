@@ -1,45 +1,39 @@
 all: build-js
 
-build-js: lektor/admin/node_modules
+.PHONY: build-js
+build-js: frontend/node_modules
+	@echo "---> cleaning static files"
+	@rm -rf lektor/admin/static
 	@echo "---> building static files"
-	@cd lektor/admin; npm run webpack
+	@cd frontend; npm run build
 
-lektor/admin/node_modules: lektor/admin/package-lock.json
+frontend/node_modules: frontend/package-lock.json
 	@echo "---> installing npm dependencies"
-	@cd lektor/admin; npm install
-	@touch -m lektor/admin/node_modules
+	@cd frontend; npm install --no-save
+	@touch -m frontend/node_modules
 
-pex:
-	virtualenv pex-build-cache
-	pex-build-cache/bin/pip install --upgrade pip
-	pex-build-cache/bin/pip install pex requests wheel
-	pex-build-cache/bin/pip wheel -w pex-build-cache/wheelhouse .
-	pex-build-cache/bin/pex \
-		-v -o lektor.pex -e lektor.cli:cli \
-		-f pex-build-cache/wheelhouse \
-		--disable-cache \
-		--not-zip-safe Lektor
-	rm -rf pex-build-cache
-
+# Run tests on Python files.
 test-python:
 	@echo "---> running python tests"
-	pylint lektor
-	pytest . --tb=long -vv --cov=lektor
+	tox -e py
 
-coverage-python: test-python
-	coverage xml
-
-test-js: build-js
+# Run tests on the Frontend code.
+test-js: frontend/node_modules
 	@echo "---> running javascript tests"
-	@cd lektor/admin; npm run lint
-	@cd lektor/admin; npm test
+	@cd frontend; npx tsc
+	@cd frontend; npm test
 
-coverage-js: test-js
-	@cd lektor/admin; npm run report-coverage
+.PHONY: lint
+# Lint code.
+lint:
+	uv run prek run -v -a
+	tox -e lint
 
-test: test-python test-js
+.PHONY: test
+test: lint test-python test-js
 
-coverage: coverage-python coverage-js
-
-install-git-hooks:
-	ln -sT $(PWD)/bin/pre-commit .git/hooks/pre-commit
+.PHONY: test-all
+# Run tests on all supported Python versions.
+test-all: test-js
+	uv run prek run -v -a
+	tox
